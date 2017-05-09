@@ -8,7 +8,6 @@
 
 namespace app\components\redis;
 
-use phpDocumentor\Reflection\Types\Null_;
 use Yii;
 use Redis;
 use RedisException;
