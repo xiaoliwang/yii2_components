@@ -11,8 +11,8 @@ namespace app\components\redis;
 use phpDocumentor\Reflection\Types\Null_;
 use Yii;
 use Redis;
-use yii\base\Configurable;
 use RedisException;
+use yii\base\Configurable;
 use yii\base\InvalidParamException;
 
 class Connection extends Redis implements Configurable
@@ -82,5 +82,78 @@ class Connection extends Redis implements Configurable
             $this->del($keys);
         } while($cursor);
         return true;
+    }
+
+    // 分布式锁
+    public function lock($lock_key, int $timeout)
+    {
+        $now = time();
+        $timeout = $now + $timeout + 1;
+        if ($this->setnx($lock_key, $timeout) || 
+            ($now > $this->get($lock_key) && $now > $this->getSet($lock_key, $timeout))
+        ) {
+            return true;
+        } 
+        return false;
+    }
+
+    public function unlock($lock_key)
+    {
+        $now = time();
+        if ($now < $this->get($lock_key)) {
+            $this->del($lock_key);
+            return true;
+        }
+        return false;
+    }
+
+    // hash 计数器
+    public function incrCount($pattern, int $id, $type = self::LINER, int $increment = 1)
+    {
+        [$key, $sub_id] = $this->segmentKey($pattern, $id, $type);
+        $this->hIncrBy($key, $sub_id, $increment);
+    }
+
+    public function getCount($pattern, $id, $type = self::LINER)
+    {
+        [$key, $sub_id] = $this->segmentKey($pattern, $id, $type);
+        return $this->hGet($key, $sub_id);
+    }
+
+    public function resetCount($pattern, $id, $type = self::LINER)
+    {
+        [$key, $sub_id] = $this->segmentKey($pattern, $id, $type);
+        $this->watch($key);
+        $ret = $this->multi()
+            ->hGet($key, $sub_id)
+            ->hDel($key, $sub_id)
+            ->exec();
+        if (is_array($ret)) {
+            $this->watch($key);
+            if ($this->hlen($key)) {
+                $this->multi()
+                    ->del($key)
+                    ->exec();
+            }
+            return $ret[0];
+        }
+        return $ret;
+    }
+
+    // 分段键
+    private function segmentKey($pattern, $id, $type = self::LINER)
+    {
+        switch ($type) {
+            case self::LINER:
+                $seg = intdiv($id, $this->part_len);
+                $sub_id = $id % $this->part_len;
+                $key = $this->generateKey($pattern, $type, $seg);
+                return [$key, $sub_id];
+            case self::HASH:
+                $sub_id = intdiv($id, $this->parts);
+                $seg = $id % $this->parts;
+                $key = $this->generateKey($pattern, $type, $seg);
+                return [$key, $sub_id];
+        }
     }
 }
