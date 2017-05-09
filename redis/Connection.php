@@ -24,6 +24,12 @@ class Connection extends Redis implements Configurable
     public $database = 0;
     public $connectionTimeout = 0.0;
 
+    private $part_len = 1000;
+    private $parts = 10;
+
+    const LINER = 1;
+    const HASH = 2;
+
     public static function className()
     {
         return get_called_class();
