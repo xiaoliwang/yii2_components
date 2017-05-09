@@ -128,21 +128,23 @@ class Connection extends Redis implements Configurable
     public function resetCount($pattern, $id, $type = self::LINER)
     {
         [$key, $sub_id] = $this->segmentKey($pattern, $id, $type);
-        $this->watch($key);
-        $ret = $this->multi()
-            ->hGet($key, $sub_id)
-            ->hDel($key, $sub_id)
-            ->exec();
-        if (is_array($ret)) {
+        while (true) {
             $this->watch($key);
-            if ($this->hlen($key)) {
+            $ret = $this->multi()
+                ->hGet($key, $sub_id)
+                ->hDel($key, $sub_id)
+                ->exec();
+            if (false === $ret) continue;
+            $this->watch($key);
+            if (0 === $this->hlen($key)) {
                 $this->multi()
                     ->del($key)
                     ->exec();
+            } else {
+                $this->unWatch();
             }
             return $ret[0];
         }
-        return $ret;
     }
 
     // 分段键
